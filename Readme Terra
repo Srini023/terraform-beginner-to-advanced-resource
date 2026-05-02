@@ -1,0 +1,102 @@
+# Terraform Infrastructure as Code for cki-heh
+
+## About
+
+Replace this text with a description of your Infrastructure as Code service.
+
+## Contents
+
+### Files
+
+* `Makefile` - main build and release targets to use locally; not used during CI
+
+### Directories
+
+* `terraform` - deployment configurations used during GCP CD execution via Terraform
+* `terraform/local` - files used for local development only, won't be
+  incorporated into the release artifact
+* `terraform/tfvars` - tfvars files for all environments, including additional
+  custom tfvars files
+* `terraform/files` - miscellaneous files you may need to upload to
+  Cloud Storage or use as templates
+* `terraform/modules` - additional terraform modules
+* `terraform/src` - sources for Cloud Functions, App Engine or similar services
+
+## Develop locally
+
+### Setup your laptop
+
+```bash
+# Set up you laptop for local development. Authenticate Google SDK and Initialize Terraform
+make setup-laptop
+```
+
+After executing this target you will set up your Google SDK and Terraform.
+Specifically you will authenticate to GCP and set up your default GCP Project,
+region and zone.
+
+### Terraform plan
+
+```bash
+# Build Terraform plan locally
+make local-plan
+```
+
+Keep in mind that the state file is created locally on your hard drive.
+
+### Terraform apply
+
+```bash
+# Deploy Terraform from your laptop
+make local-deploy
+```
+
+Don't forget to destroy resources created with this target before scheduling a
+CD Pipeline deployment as it may fail complaining on name conflicts.
+
+### Terraform destroy
+
+```bash
+# Destroy resources previously created from your laptop
+make local-destroy
+```
+
+This target will destroy any resource that is tracked in your locally stored
+state file.
+
+## Schedule deployments via CD Pipeline
+
+### Release artifacts
+
+```bash
+# Upload Terraform artifact to Nexus repository to make it available for the CD Pipeline
+make release
+```
+
+### Trigger promotion (artifact scan)
+
+This step is optional for development but it's a good practice to perform a scan
+to see what issues you may have in your artifact. Even if it fails you can move
+forward with your Development deployment.
+This step is mandatory
+
+
+
+### Schedule deployment via Armada/SNOW/CD Pipeline
+
+Deploy resources (assume `dev` for Terraform environment variable) from local machine
+
+```bash
+# deploys to Google Cloud assuming dev environment
+make deploy
+
+# deploys to a specified GCP Project
+make deploy PROJECT_ID=....
+```
+
+### Destroy deployed resources
+
+```bash
+# destroys all resources
+make deploy DEPLOY_ACTION=destroy
+```
