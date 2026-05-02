@@ -1,0 +1,77 @@
+#!/usr/bin/env groovy
+pipeline {
+  agent { label 'jenkins-agent' }
+  environment {
+    TERRAFORM_GROUP = 'com.sabre.checkin'
+    TERRAFORM_ARTIFACT = 'cki-em-terraform'
+
+    ARMADA_APP_NAME = 'cki-em'
+    SNOW_ASSET_TAG = 'CKI:EM-GCP'  
+  }
+  options{
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+    skipDefaultCheckout()
+  }
+  stages {
+    stage('Initialize') {
+      when { anyOf { branch 'master'; branch 'release/*' } }
+      steps {
+        checkout([
+          $class                           : 'GitSCM',
+          branches                         : scm.branches,
+          doGenerateSubmoduleConfigurations: scm.doGenerateSubmoduleConfigurations,
+          extensions                       : scm.extensions + [[$class: 'CloneOption', noTags: false]],
+          userRemoteConfigs                : scm.userRemoteConfigs,
+        ])        
+        script {
+          env.TERRAFORM_VERSION = sh(script: 'git describe --long --tags', returnStdout: true).trim()
+          currentBuild.description = "${TERRAFORM_VERSION}"
+        }
+      }
+    }
+    stage('Package') {
+      when { anyOf { branch 'master'; branch 'release/*' } }
+      steps {
+        sh 'zip -j ${TERRAFORM_ARTIFACT}.zip terraform/*.t* terraform/env/*'
+      }
+    }
+    stage('Publish') {
+      when { anyOf { branch 'master'; branch 'release/*' } }
+      steps {
+        withCredentials([string(credentialsId: 'repository-username-token', variable: 'USERNAME'),
+                         string(credentialsId: 'repository-password-token', variable: 'PASSWORD')
+                        ]) {
+          sh 'ngp nexus cloud-templates upload --user "${USERNAME}" --password "${PASSWORD}" --nexusserver "${REPOSITORY}" ${TERRAFORM_ARTIFACT}.zip ${TERRAFORM_GROUP}:${TERRAFORM_ARTIFACT}:${TERRAFORM_VERSION}@zip'
+        }
+      }
+    }
+    stage('Promote') {
+      when { anyOf { branch 'master'; branch 'release/*' } }
+      steps {
+        withCredentials([string(credentialsId: 'promotion-jenkins-username-token', variable: 'USERNAME'),
+                         string(credentialsId: 'promotion-jenkins-password-token', variable: 'PASSWORD')
+                        ]) {
+          script {
+            sh('ngp nexus cloud-templates scan --scan-user "${USERNAME}" --scan-password "${PASSWORD}" --promotejenkinsserver "${PROMOTION_URL}" ${TERRAFORM_GROUP}:${TERRAFORM_ARTIFACT}:${TERRAFORM_VERSION}')
+          }
+        }
+      }
+    }
+    stage('Deploy') {
+      steps {
+        build job: "/cki-core/deploy-terraform", wait: false, parameters: [string(name: 'ARMADA_APP_NAME', value: "${ARMADA_APP_NAME}"), string(name: 'SNOW_ASSET_TAG', value: "${SNOW_ASSET_TAG}"), string(name: 'TERRAFORM_GROUP', value: "${TERRAFORM_GROUP}"), string(name: 'TERRAFORM_ARTIFACT', value: "${TERRAFORM_ARTIFACT}"), string(name: 'TERRAFORM_VERSION', value: "${TERRAFORM_VERSION}"), booleanParam(name: 'SCHEDULE_CHANGE_INT', value: false)]
+      }
+    }
+  }
+  post {
+    success {
+      deleteDir()
+    }
+    failure {
+      emailext subject: "Job Failed: ${JOB_NAME}.",
+          body: "Job Failed: ${JOB_NAME}. ${BUILD_URL}",
+          from: 'vinodkumar.banda@sabre.com',
+          to: 'vinodkumar.banda@sabre.com'
+    }
+  }
+}
